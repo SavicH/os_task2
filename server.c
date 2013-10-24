@@ -4,21 +4,29 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
-#define MAX 1024
+#include "pop3.h"
+
 #define PORT 2558
+#define FILENAME "data.txt"
 
 int main()
 {
+    pop3_data *data;
+    int len;
+    if (cache(FILENAME, data, &len))
+    {
+        perror("cache");
+        exit(1);
+    }
+
     int sock, listener;
     struct sockaddr_in addr;
-    char buf[MAX];
-    int bytes_read;
 
     listener = socket(AF_INET, SOCK_STREAM, 0);
     if(listener < 0)
     {
         perror("socket");
-        exit(1);
+        exit(2);
     }
     
     addr.sin_family = AF_INET;
@@ -27,7 +35,7 @@ int main()
     if(bind(listener, (struct sockaddr *)&addr, sizeof(addr)) < 0)
     {
         perror("bind");
-        exit(2);
+        exit(3);
     }
 
     listen(listener, 5);
@@ -38,7 +46,7 @@ int main()
         if(sock < 0)
         {
             perror("accept");
-            exit(3);
+            exit(4);
         }
 
         pid_t pid = fork();
@@ -49,10 +57,7 @@ int main()
                 break;
             case 0:
                 close(listener);
-                bytes_read = recv(sock, buf, 1024, 0);
-                if(bytes_read <= 0) break;
-                char *msg = "OK\n";
-                send(sock, msg, bytes_read, 0);
+                serve_client(sock, data, len);
                 exit(0);
                 break;
             default:
