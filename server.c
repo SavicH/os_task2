@@ -2,6 +2,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <unistd.h>
 
 #define MAX 1024
 #define PORT 2558
@@ -40,15 +41,25 @@ int main()
             exit(3);
         }
 
-        while(1)
+        pid_t pid = fork();
+        switch (pid)
         {
-            bytes_read = recv(sock, buf, 1024, 0);
-            if(bytes_read <= 0) break;
-            char *msg = "OK\n";
-            send(sock, msg, bytes_read, 0);
-        }
-    
-        close(sock);
+            case -1:
+                perror("fork");
+                break;
+            case 0:
+                close(listener);
+                bytes_read = recv(sock, buf, 1024, 0);
+                if(bytes_read <= 0) break;
+                char *msg = "OK\n";
+                send(sock, msg, bytes_read, 0);
+                exit(0);
+                break;
+            default:
+                close(sock);
+                break;
+        }   
+
     }
     
     return 0;
