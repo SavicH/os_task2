@@ -1,13 +1,17 @@
 #include <stdlib.h>
+#include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 #include <netinet/in.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 #include "pop3.h"
 
 #define PORT 2558
 #define MAXEVENTS 32
+#define MAXCONNECTIONS 1000
 #define FILENAME "data.txt"
 
 static int make_socket_non_blocking (int sfd)
@@ -56,46 +60,76 @@ static int create_listener(int *listener)
 
 int main()
 {
+    int listener, epollfd;
+
+    struct epoll_event event;
+    struct epoll_event *events;
+
     pop3_data *data;
     int len;
+
     if (cache(FILENAME, data, &len))
     {
         perror("cache");
         exit(1);
     }
 
-    int listener;
+
     create_listener(&listener);
-
     make_socket_non_blocking(listener);
+    listen(listener, MAXCONNECTIONS);
 
-    listen(listener, 5);
+    epollfd = epoll_create1(0);
+    event.events = EPOLLIN | EPOLLET;
+    event.data.fd = listener;
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, listener, &event) == -1)
+    {
+        perror("epoll_ctl");
+        exit(4);
+    }
+
+    events = calloc(MAXEVENTS, sizeof(struct epoll_event));
     
     while(1)
     {
-        int sock = accept(listener, NULL, NULL);
-        if(sock < 0)
+        int i, n;
+        n = epoll_wait(epollfd, events, MAXEVENTS, -1);
+        for (i=0; i<n; i++)
         {
-            perror("accept");
-            exit(4);
+            if ((events[i].events & EPOLLERR) ||
+                (events[i].events & EPOLLHUP) ||
+                (!(events[i].events & EPOLLIN)))
+            {
+                fprintf (stderr, "epoll error\n");
+                close (events[i].data.fd);
+                continue;
+            }
+
+            if (events[i].data.fd == listener)
+            {
+                while (1)
+                {
+                    int sock = accept(listener, NULL, NULL);
+                    if (sock == -1)
+                    {
+                        break;
+                    }
+                    make_socket_non_blocking(sock);
+                    struct epoll_event event;
+                    event.data.fd = sock;
+                    event.events = EPOLLIN | EPOLLET;
+                    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, sock, &event) == -1)
+                    {
+                        perror("epoll_ctl");
+                        exit(4);
+                    }
+                }
+            }
+            else
+            {
+                serve_client(events[i].data.fd, data, len);
+            }
         }
-
-        pid_t pid = fork();
-        switch (pid)
-        {
-            case -1:
-                perror("fork");
-                break;
-            case 0:
-                close(listener);
-                serve_client(sock, data, len);
-                exit(0);
-                break;
-            default:
-                close(sock);
-                break;
-        }   
-
     }
     
     return 0;

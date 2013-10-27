@@ -1,27 +1,51 @@
 #include "pop3.h"
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
 
 #define MAX 1024
 
 int serve_client(int sock, pop3_data *data, int len) 
 {
-	char buf[MAX];
+    int done = 0;
+    char buf[MAX];
     int bytes_read;
-	bytes_read = recv(sock, buf, 1024, 0);
-    if (bytes_read > 0)
-    { 
-    	char *msg = "OK\n";
-    	send(sock, msg, sizeof(msg), 0);
+    while (1) 
+    {
+        bytes_read = recv(sock, buf, 1024, 0);
+        if (bytes_read == -1)
+        {
+            if (errno != EAGAIN)
+            {
+                perror ("read");
+                done = 1;
+            }
+            break;
+        }
+        else
+        {
+            if (bytes_read == 0)
+            {
+            done = 1;
+            break;
+            }
+        }
+    }
+
+    if (done)
+    {
+        //char *msg = "OK\n";
+        //send(sock, msg, sizeof(msg), 0);  
+        close(sock);
     }
     else
     {
-    	perror("read");
-    	return 1;
+        char *msg = "OK\n";
+        send(sock, msg, sizeof(msg), 0);        
     }
 }
 
 int cache(char *filename, pop3_data *data, int *len)
 {
-	return 0;
+    return 0;
 }
