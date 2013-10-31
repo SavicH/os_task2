@@ -1,12 +1,15 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <string.h>
+#include <stdio.h>
 
 #define MAX 1024
 #define PORT 2558
 
 char test[] = "USER test\n";
 char buf[MAX];
+char command[MAX];
 
 int main()
 {
@@ -28,11 +31,18 @@ int main()
         perror("connect");
         return 2;
     }
-
-    send(sock, test, sizeof(test), 0);
-    recv(sock, buf, sizeof(test), 0);
-    
-    printf("%s\n", (char*)buf);
+    while (1) 
+    {
+        fgets(command, sizeof(command), stdin);
+        send(sock, command, sizeof(test), 0);
+        recv(sock, buf, sizeof(test), 0);
+        printf("%s\n", (char*)buf);
+        if (strstr(command, "QUIT"))
+        {
+            break;    
+        }
+    }
+    send(sock, command, 0, 0);    
     close(sock);
 
     return 0;
