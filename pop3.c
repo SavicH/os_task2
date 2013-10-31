@@ -1,6 +1,7 @@
 #include "pop3.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 
 #define MAX 1024
@@ -9,33 +10,31 @@ int serve_client(int sock, pop3_data *data, int len)
 {
     int done = 0;
     char buf[MAX];
-    int bytes_read;
-    while (1) 
+    int n;
+    //while (1) 
+    //{
+    n = recv(sock, buf, 1024, 0);
+    if (n == -1)
     {
-        bytes_read = recv(sock, buf, 1024, 0);
-        if (bytes_read == -1)
+        if (errno != EAGAIN)
         {
-            if (errno != EAGAIN)
-            {
-                perror ("read");
-                done = 1;
-            }
-            break;
-        }
-        else
-        {
-            if (bytes_read == 0)
-            {
+            perror ("read");
             done = 1;
-            break;
-            }
+        }
+        //break;
+    }
+    else
+    {
+        if (n == 0)
+        {
+           done = 1;
+           //break;
         }
     }
+    //}
 
     if (done)
     {
-        //char *msg = "OK\n";
-        //send(sock, msg, sizeof(msg), 0);  
         close(sock);
     }
     else
@@ -47,5 +46,26 @@ int serve_client(int sock, pop3_data *data, int len)
 
 int cache(char *filename, pop3_data *data, int *len)
 {
+    FILE *f = fopen(filename, "r");
+    if (!f) 
+    {
+        return 1;
+    }
+    char buf[MAX];
+    fgets(buf, sizeof(buf), f);
+    *len = atoi(buf);
+    data = calloc(sizeof(pop3_data), *len);
+    int i;
+    for (i = 0; i<*len; i++)
+    {
+        if (fgets(buf, sizeof(buf), f))
+        {
+            data[i].username = strtok(buf, " ");
+            data[i].password = strtok(NULL, " ");
+            data[i].count = atoi(strtok(NULL, " "));
+            data[i].size = atoi(strtok(NULL, " "));
+        }
+    }
+    fclose(f);
     return 0;
 }

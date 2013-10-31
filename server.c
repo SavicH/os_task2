@@ -1,4 +1,3 @@
-//#include "apue.h"
 #include <syslog.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -16,7 +15,6 @@
 #define PORT 2558
 #define MAXEVENTS 32
 #define MAXCONNECTIONS 1000
-#define FILENAME "data.txt"
 
 void daemonize(const char *cmd)
 {
@@ -93,7 +91,7 @@ void daemonize(const char *cmd)
     }
 }
 
-static int make_socket_non_blocking (int sfd)
+int make_socket_non_blocking (int sfd)
 {
     int flags, s;
 
@@ -115,7 +113,7 @@ static int make_socket_non_blocking (int sfd)
     return 0;
 }
 
-static int create_listener(int *listener)
+int create_listener(int *listener)
 {
     struct sockaddr_in addr;
 
@@ -137,7 +135,7 @@ static int create_listener(int *listener)
 }
 
 
-int main()
+int main(int argc, char* argv[])
 {
     //daemonize("POP3 server");
     int listener, epollfd;
@@ -148,7 +146,7 @@ int main()
     pop3_data *data;
     int len;
 
-    if (cache(FILENAME, data, &len))
+    if (cache(argv[1], data, &len))
     {
         perror("cache");
         exit(1);
