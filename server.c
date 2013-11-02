@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <string.h>
 
 #include "pop3.h"
 
@@ -146,12 +147,11 @@ int main(int argc, char* argv[])
     pop3_data *data;
     int len;
 
-    if (cache(argv[1], data, &len))
+    if (cache(argv[1], &data, &len))
     {
         perror("cache");
         exit(1);
     }
-
 
     create_listener(&listener);
     make_socket_non_blocking(listener);
@@ -193,6 +193,8 @@ int main(int argc, char* argv[])
                         break;
                     }
                     make_socket_non_blocking(sock);
+                    char *msg = "+OK POP3 server ready\n";
+                    send(sock, msg, strlen(msg), 0); 
                     struct epoll_event event;
                     event.data.fd = sock;
                     event.events = EPOLLIN | EPOLLET;

@@ -5,10 +5,11 @@
 #include <errno.h>
 
 #define MAX 1024
+#define MAXLENGTH 32
 
 int serve_client(int sock, pop3_data *data, int len) 
 {
-    int done = 0;
+    int finish = 0;
     char buf[MAX];
     int n;
     //while (1) 
@@ -19,7 +20,8 @@ int serve_client(int sock, pop3_data *data, int len)
         if (errno != EAGAIN)
         {
             perror ("read");
-            done = 1;
+            close(sock);
+            return 1;
         }
         //break;
     }
@@ -27,43 +29,95 @@ int serve_client(int sock, pop3_data *data, int len)
     {
         if (n == 0)
         {
-           done = 1;
-           //break;
+           close(sock);
+           return 0;
         }
     }
     //}
 
-    if (done)
+    char *command = strtok(buf, " ");
+    char *msg;
+
+    if (!strncmp(command, "APOP", 4))
     {
-        close(sock);
-    }
-    else
+        char *username = strtok(NULL, " ");
+        char *password = strtok(NULL, " ");
+        int ok = 0;
+        int i;
+        for (i = 0; i<len & !ok; i++)
+        {
+            ok = (strcmp(data[i].username, username) == 0) & (strcmp(data[i].password, password) == 0);
+        }
+        if (ok)
+        {
+            msg = "+OK maildrop has n message\n";
+        }
+        else
+        {
+            sprintf(msg, "-ERR password suplied for %s is incorrect", username);
+        }
+    } else
+    if (!strncmp(command, "NOOP", 4))
     {
-        char *msg = "OK\n";
-        send(sock, msg, sizeof(msg), 0);        
+        msg = "+OK\n";
+    } else
+    if (!strncmp(command, "STAT", 4))
+    {
+        msg = "+OK a b\n";
+    } else
+    if (!strncmp(command, "QUIT", 4))
+    {
+        msg = "+OK\n";
+    } else
+    {
+        msg = "Unknown command\n";
     }
+    send(sock, msg, strlen(msg), 0);        
+    return 0;
 }
 
-int cache(char *filename, pop3_data *data, int *len)
+char buf[MAX];
+int position;
+
+static char *get_token()
+{
+    char *tmp;
+    tmp = (char*)malloc(MAXLENGTH);
+    int i = 0;
+    do
+    {
+        tmp[i++] = buf[position];
+    }
+    while (buf[position]!= 0 & buf[position]!=10 & buf[position++]!=32);
+    tmp[i-1]=0;
+    return tmp;
+}
+
+int cache(char *filename, pop3_data **data, int *len)
 {
     FILE *f = fopen(filename, "r");
     if (!f) 
     {
         return 1;
     }
-    char buf[MAX];
     fgets(buf, sizeof(buf), f);
     *len = atoi(buf);
-    data = calloc(sizeof(pop3_data), *len);
+    *data = malloc(sizeof(pop3_data) * (*len));
     int i;
     for (i = 0; i<*len; i++)
     {
         if (fgets(buf, sizeof(buf), f))
         {
-            data[i].username = strtok(buf, " ");
-            data[i].password = strtok(NULL, " ");
-            data[i].count = atoi(strtok(NULL, " "));
-            data[i].size = atoi(strtok(NULL, " "));
+            char *tmp;
+            position = 0;
+            tmp = get_token();
+            (*data)[i].username = tmp;
+            tmp = get_token();
+            (*data)[i].password = tmp;
+            tmp = get_token();
+            (*data)[i].size = atoi(tmp);
+            tmp = get_token();
+            (*data)[i].size = atoi(tmp);
         }
     }
     fclose(f);
