@@ -4,16 +4,13 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#define MAX 1024
+#define MAXBYTES 1024
 #define MAXLENGTH 32
 
 int serve_client(int sock, pop3_data *data, int len) 
 {
-    int finish = 0;
-    char buf[MAX];
+    char buf[MAXBYTES];
     int n;
-    //while (1) 
-    //{
     n = recv(sock, buf, 1024, 0);
     if (n == -1)
     {
@@ -23,7 +20,6 @@ int serve_client(int sock, pop3_data *data, int len)
             close(sock);
             return 1;
         }
-        //break;
     }
     else
     {
@@ -33,15 +29,14 @@ int serve_client(int sock, pop3_data *data, int len)
            return 0;
         }
     }
-    //}
 
     char *command = strtok(buf, " ");
-    char *msg;
+    char *msg = malloc(MAXBYTES);
 
     if (!strncmp(command, "APOP", 4))
     {
         char *username = strtok(NULL, " ");
-        char *password = strtok(NULL, " ");
+        char *password = strtok(NULL, "\n");
         int ok = 0;
         int i;
         for (i = 0; i<len & !ok; i++)
@@ -50,33 +45,34 @@ int serve_client(int sock, pop3_data *data, int len)
         }
         if (ok)
         {
-            msg = "+OK maildrop has n message\n";
+            sprintf(msg, "+OK maildrop has %d message\n", data[i].count);
         }
         else
         {
-            sprintf(msg, "-ERR password suplied for %s is incorrect", username);
+            sprintf(msg, "-ERR password suplied for %s is incorrect\n", username);
         }
     } else
     if (!strncmp(command, "NOOP", 4))
     {
-        msg = "+OK\n";
+        sprintf(msg, "+OK\n");
     } else
     if (!strncmp(command, "STAT", 4))
     {
-        msg = "+OK a b\n";
+        sprintf(msg, "+OK a b\n");
     } else
     if (!strncmp(command, "QUIT", 4))
     {
-        msg = "+OK\n";
+        sprintf(msg, "+OK\n");
     } else
     {
-        msg = "Unknown command\n";
+        sprintf(msg, "Unknown command\n");
     }
-    send(sock, msg, strlen(msg), 0);        
+    send(sock, msg, strlen(msg), 0);
+    free(msg);        
     return 0;
 }
 
-char buf[MAX];
+char buf[MAXBYTES];
 int position;
 
 static char *get_token()
