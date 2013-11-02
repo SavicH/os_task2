@@ -7,7 +7,6 @@
 #define MAX 1024
 #define PORT 2558
 
-char test[] = "USER test\n";
 char buf[MAX];
 char command[MAX];
 
@@ -31,11 +30,14 @@ int main()
         perror("connect");
         return 2;
     }
+    recv(sock, buf, sizeof(buf), 0);
+    printf("%s\n", (char*)buf);
     while (1) 
     {
         fgets(command, sizeof(command), stdin);
-        send(sock, command, sizeof(test), 0);
-        recv(sock, buf, sizeof(test), 0);
+        send(sock, command, strlen(command), 0);
+        memset(buf, 0, sizeof(buf));
+        recv(sock, buf, sizeof(buf), 0);
         printf("%s\n", (char*)buf);
         if (strstr(command, "QUIT"))
         {
