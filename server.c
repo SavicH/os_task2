@@ -10,12 +10,17 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <string.h>
+#include <errno.h>
 
+#include "server.h"
 #include "pop3.h"
 
 #define PORT 2558
-#define MAXEVENTS 32
+#define MAXEVENTS 4
 #define MAXCONNECTIONS 1000
+
+#define READPIPE "/tmp/readpipe"
+#define WRITEPIPE "/tmp/writepipe"
 
 void daemonize(const char *cmd)
 {
@@ -135,23 +140,87 @@ int create_listener(int *listener)
     }
 }
 
+int file_exists(char * filename)
+{
+    struct stat info;
+    if(!stat(filename ,&info)) {
+        if(errno == ENOENT) {
+            return 0;
+        } else if(errno == EACCES) {
+            return 0;
+        } else {
+            return 1;
+        }
+    }
+    else
+    {
+        return 0;
+    }
+}
+
+void prefork()
+{
+    int i;
+    for (i = 0; i<MAXEVENTS; i++)
+    {   
+        if (!fork())
+        {
+            printf("%s\n", "I'm here!");
+            while (1)
+            {
+                sleep(30);
+            }
+        }
+    }
+}
 
 int main(int argc, char* argv[])
 {
     //daemonize("POP3 server");
-    int listener, epollfd;
-
-    struct epoll_event event;
-    struct epoll_event *events;
 
     pop3_data *data;
     int len;
-
     if (cache(argv[1], &data, &len))
     {
         perror("cache");
         exit(1);
     }
+
+    if (!file_exists(READPIPE))
+    {
+        if (mkfifo(READPIPE, 0666))
+        {
+            perror("pipe");
+            exit(1);
+        }
+    }
+
+    if (!file_exists(WRITEPIPE))
+    {
+        if (mkfifo(WRITEPIPE, 0666))
+        {
+            perror("pipe");
+            exit(1);
+        }
+    }
+
+    prefork();
+
+    FILE *readpipe, *writepipe;
+
+    //readpipe = open(READPIPE, O_WRONLY);
+    //writepipe = open(WRITEPIPE, O_RDONLY);
+
+    // close(readpipe);
+    // readpipe = open(READPIPE, O_RDONLY | O_NONBLOCK);
+
+    // close(writepipe);
+    // writepipe = open(WRITEPIPE, O_WRONLY);
+
+    int listener, epollfd;
+
+    struct epoll_event event;
+    struct epoll_event *events;
 
     create_listener(&listener);
     make_socket_non_blocking(listener);
@@ -211,6 +280,7 @@ int main(int argc, char* argv[])
             }
         }
     }
-    
+    fclose(readpipe);
+    fclose(writepipe);
     return 0;
 }

@@ -4,12 +4,12 @@
 #include <stdlib.h>
 #include <errno.h>
 
-#define MAXBYTES 1024
-#define MAXLENGTH 32
+#define BUFSIZE 1024
+#define LENGTH 32
 
 int serve_client(int sock, pop3_data *data, int len) 
 {
-    char buf[MAXBYTES];
+    char buf[BUFSIZE];
     int n;
     n = recv(sock, buf, 1024, 0);
     if (n == -1)
@@ -31,7 +31,7 @@ int serve_client(int sock, pop3_data *data, int len)
     }
 
     char *command = strtok(buf, " ");
-    char *msg = malloc(MAXBYTES);
+    char *msg = malloc(BUFSIZE);
 
     if (!strncmp(command, "APOP", 4))
     {
@@ -72,13 +72,13 @@ int serve_client(int sock, pop3_data *data, int len)
     return 0;
 }
 
-char buf[MAXBYTES];
+char buf[BUFSIZE];
 int position;
 
 static char *get_token()
 {
     char *tmp;
-    tmp = (char*)malloc(MAXLENGTH);
+    tmp = (char*)malloc(LENGTH);
     int i = 0;
     do
     {
