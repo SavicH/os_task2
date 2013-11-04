@@ -11,13 +11,14 @@
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
+#include <string.h>
 
-#include "server.h"
 #include "pop3.h"
 
 #define PORT 2558
-#define MAXEVENTS 4
+#define MAXEVENTS 1
 #define MAXCONNECTIONS 1000
+#define BUFSIZE 1024
 
 #define READPIPE "/tmp/readpipe"
 #define WRITEPIPE "/tmp/writepipe"
@@ -41,8 +42,8 @@ void daemonize(const char *cmd)
     {
         printf("%s error", cmd);
         exit(1);
-    }   
-    else 
+    }
+    else
     {
         if (pid != 0)
         {
@@ -64,7 +65,7 @@ void daemonize(const char *cmd)
         printf("%s error", cmd);
         exit(1);
     }
-    else 
+    else
     {
         if (pid != 0)
         {
@@ -129,7 +130,7 @@ int create_listener(int *listener)
         perror("socket");
         exit(2);
     }
-    
+
     addr.sin_family = AF_INET;
     addr.sin_port = htons(PORT);
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -158,18 +159,53 @@ int file_exists(char * filename)
     }
 }
 
+char *filename;
+
 void prefork()
 {
     int i;
     for (i = 0; i<MAXEVENTS; i++)
-    {   
+    {
         if (!fork())
         {
-            printf("%s\n", "I'm here!");
+            pop3_data *data;
+            int len;
+            if (cache(filename, &data, &len))
+            {
+                perror("cache");
+                exit(1);
+            }
+            FILE *readpipe, *writepipe;
+            readpipe = fopen(READPIPE, "r");
+            writepipe = fopen(WRITEPIPE, "w");
+            int f = 1;
+            printf("Ready\n");
             while (1)
             {
-                sleep(30);
+                char buf[BUFSIZE];
+                if (fgets(buf, sizeof(buf), readpipe) != NULL)
+                {
+                    if (f==1)
+                    {
+                        int sock = atoi(buf);
+                        fgets(buf, sizeof(buf), readpipe);
+                        char *msg = serve_client(buf, data, len);
+                        fprintf(writepipe, "%d\n", sock);
+                        fprintf(writepipe, "%s", msg);
+                        fflush(writepipe);
+                        free(msg);
+                        f = 0;
+                    }
+                    else
+                    {
+                        f = 1;
+                    }
+                }
             }
+            printf("Quit\n");
+            fclose(readpipe);
+            fclose(writepipe);
+            exit(0);
         }
     }
 }
@@ -186,36 +222,18 @@ int main(int argc, char* argv[])
         exit(1);
     }
 
-    if (!file_exists(READPIPE))
-    {
-        if (mkfifo(READPIPE, 0666))
-        {
-            perror("pipe");
-            exit(1);
-        }
-    }
+    remove(READPIPE);
+    mkfifo(READPIPE, 0666);
+    remove(WRITEPIPE);
+    mkfifo(WRITEPIPE, 0666);
 
-    if (!file_exists(WRITEPIPE))
-    {
-        if (mkfifo(WRITEPIPE, 0666))
-        {
-            perror("pipe");
-            exit(1);
-        }
-    }
-
+    filename = argv[1];
     prefork();
 
     FILE *readpipe, *writepipe;
 
-    //readpipe = open(READPIPE, O_WRONLY);
-    //writepipe = open(WRITEPIPE, O_RDONLY);
-
-    // close(readpipe);
-    // readpipe = open(READPIPE, O_RDONLY | O_NONBLOCK);
-
-    // close(writepipe);
-    // writepipe = open(WRITEPIPE, O_WRONLY);
+    readpipe = fopen(READPIPE, "w");
+    writepipe = fopen(WRITEPIPE, "r");
 
     int listener, epollfd;
 
@@ -236,7 +254,7 @@ int main(int argc, char* argv[])
     }
 
     events = calloc(MAXEVENTS, sizeof(struct epoll_event));
-    
+
     while(1)
     {
         int i, n;
@@ -263,7 +281,7 @@ int main(int argc, char* argv[])
                     }
                     make_socket_non_blocking(sock);
                     char *msg = "+OK POP3 server ready\n";
-                    send(sock, msg, strlen(msg), 0); 
+                    send(sock, msg, strlen(msg), 0);
                     struct epoll_event event;
                     event.data.fd = sock;
                     event.events = EPOLLIN | EPOLLET;
@@ -276,7 +294,41 @@ int main(int argc, char* argv[])
             }
             else
             {
-                serve_client(events[i].data.fd, data, len);
+                int finish = 0;
+                char buf[BUFSIZE];
+                int n;
+                n = recv(events[i].data.fd, buf, 1024, 0);
+                if (n == -1)
+                {
+                    if (errno != EAGAIN)
+                    {
+                        perror ("read");
+                        close(events[i].data.fd);
+                        finish = 1;
+                    }
+                }
+                else
+                {
+                    if (n == 0)
+                    {
+                       close(events[i].data.fd);
+                       finish = 1;
+                    }
+                }
+                if (!finish)
+                {
+                    //fprintf(readpipe, "%d\n%d\n%s\n", 1, events[i].data.fd, buf);
+                    fprintf(readpipe, "%d\n", events[i].data.fd);
+                    fprintf(readpipe, "%s\n", buf);
+                    fflush(readpipe);
+                    memset(buf, 0, sizeof(buf));
+                    if (fgets(buf, sizeof(buf), writepipe) != NULL)
+                    {
+                        int sock = atoi(buf);
+                        fgets(buf, sizeof(buf), writepipe);
+                        send(sock, buf, sizeof(buf), 0);
+                    }
+                }
             }
         }
     }

@@ -7,29 +7,8 @@
 #define BUFSIZE 1024
 #define LENGTH 32
 
-int serve_client(int sock, pop3_data *data, int len) 
+char* serve_client(char *buf, pop3_data *data, int len)
 {
-    char buf[BUFSIZE];
-    int n;
-    n = recv(sock, buf, 1024, 0);
-    if (n == -1)
-    {
-        if (errno != EAGAIN)
-        {
-            perror ("read");
-            close(sock);
-            return 1;
-        }
-    }
-    else
-    {
-        if (n == 0)
-        {
-           close(sock);
-           return 0;
-        }
-    }
-
     char *command = strtok(buf, " ");
     char *msg = malloc(BUFSIZE);
 
@@ -66,10 +45,8 @@ int serve_client(int sock, pop3_data *data, int len)
     } else
     {
         sprintf(msg, "Unknown command\n");
-    }
-    send(sock, msg, strlen(msg), 0);
-    free(msg);        
-    return 0;
+    }       
+    return msg;
 }
 
 char buf[BUFSIZE];
