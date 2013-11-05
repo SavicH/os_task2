@@ -1,8 +1,6 @@
 #ifndef POP3_H
 #define POP3_H
 
-#include <sys/socket.h>
-
 struct pop3_data_s
 {
 	char *username;

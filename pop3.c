@@ -1,8 +1,9 @@
-#include "pop3.h"
-#include <string.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <errno.h>
+#include <string.h>
+
+#include "pop3.h"
 
 #define BUFSIZE 1024
 #define LENGTH 32

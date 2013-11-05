@@ -1,17 +1,18 @@
-#include <syslog.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <netinet/in.h>
+#include <semaphore.h>
 #include <signal.h>
-#include <stdlib.h>
 #include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <stdlib.h>
+#include <string.h>
 #include <sys/epoll.h>
 #include <sys/resource.h>
-#include <netinet/in.h>
+#include <sys/shm.h> 
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <syslog.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
-#include <errno.h>
-#include <string.h>
 
 #include "pop3.h"
 
@@ -141,24 +142,6 @@ int create_listener(int *listener)
     }
 }
 
-int file_exists(char * filename)
-{
-    struct stat info;
-    if(!stat(filename ,&info)) {
-        if(errno == ENOENT) {
-            return 0;
-        } else if(errno == EACCES) {
-            return 0;
-        } else {
-            return 1;
-        }
-    }
-    else
-    {
-        return 0;
-    }
-}
-
 char *filename;
 
 void prefork()
@@ -179,7 +162,7 @@ void prefork()
 
             readpipe = open(READPIPE, O_RDONLY);
             writepipe = open(WRITEPIPE, O_WRONLY);
-            //int f = 1;
+
             char zero = '\0';
             char buf[BUFSIZE];
             char *msg;
@@ -190,9 +173,7 @@ void prefork()
                 read(readpipe, &sock, sizeof(sock));
                 read(readpipe, &size, sizeof(size));
                 read(readpipe, buf, size);
-                printf("Child rcv: %d %d %s\n", sock, size, buf);
                 msg = serve_client(buf, data, len);
-                printf("Msg: %s\n", msg);
                 write(writepipe, &sock, sizeof(sock));
                 size = strlen(msg)+1;
                 write(writepipe, &size, sizeof(size));
@@ -249,6 +230,14 @@ int main(int argc, char* argv[])
         exit(4);
     }
 
+    event.events = EPOLLIN | EPOLLET;
+    event.data.fd = writepipe;
+    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, writepipe, &event) == -1)
+    {
+        perror("epoll_ctl");
+        exit(4);
+    }
+
     events = calloc(MAXEVENTS, sizeof(struct epoll_event));
 
     while(1)
@@ -290,45 +279,62 @@ int main(int argc, char* argv[])
             }
             else
             {
-                int sock = events[i].data.fd;
-                int finish = 0;
                 char buf[BUFSIZE];
                 int n;
-                memset(buf, 0, sizeof(buf));
-                n = recv(sock, buf, 1024, 0);
-                if (n == -1)
+                if (events[i].data.fd == writepipe)
                 {
-                    if (errno != EAGAIN)
+                    int sock, size;
+                    while (1)
                     {
-                        perror ("read");
-                        close(sock);
-                        finish = 1;
+                        n = read(writepipe, &sock, sizeof(sock));
+                         if (n == -1)
+                        {
+                            if (errno != EAGAIN)
+                            {
+                                perror ("writepipe");
+                                exit(1);
+                            }
+                            break;
+                        }
+                        read(writepipe, &size, sizeof(size));
+                        memset(buf, 0, sizeof(buf));
+                        read(writepipe, buf, size);
+                        send(sock, buf, strlen(buf), 0);
                     }
                 }
                 else
                 {
-                    if (n == 0)
-                    {
-                       close(sock);
-                       finish = 1;
-                    }
-                }
-                if (!finish)
-                {
-                    write(readpipe, &sock, sizeof(sock));
-                    int size = strlen(buf)+1;
-                    write(readpipe, &size, sizeof(size));
-                    write(readpipe, buf, size-1);
-                    char zero = '\0';
-                    printf("Main send: %d %d %s\n", sock, size, buf);
-                    write(readpipe, &zero, sizeof(zero));
-                    sleep(1);
+                    int sock = events[i].data.fd;
+                    int finish = 0;
+                    char buf[BUFSIZE];
                     memset(buf, 0, sizeof(buf));
-                    read(writepipe, &sock, sizeof(sock));
-                    read(writepipe, &size, sizeof(size));
-                    read(writepipe, buf, size);
-                    printf("Main recv: %d %d %s\n", sock, size, buf);
-                    send(sock, buf, strlen(buf), 0);
+                    n = recv(sock, buf, 1024, 0);
+                    if (n == -1)
+                    {
+                        if (errno != EAGAIN)
+                        {
+                            perror ("recv");
+                            close(sock);
+                            finish = 1;
+                        }
+                    }
+                    else
+                    {
+                        if (n == 0)
+                        {
+                           close(sock);
+                           finish = 1;
+                        }
+                    }
+                    if (!finish)
+                    {
+                        write(readpipe, &sock, sizeof(sock));
+                        int size = strlen(buf)+1;
+                        write(readpipe, &size, sizeof(size));
+                        write(readpipe, buf, size-1);
+                        char zero = '\0';
+                        write(readpipe, &zero, sizeof(zero));
+                    }
                 }
             }
         }
