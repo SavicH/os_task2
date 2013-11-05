@@ -12,6 +12,8 @@ char* serve_client(char *buf, pop3_data *data, int len)
     char *command = strtok(buf, " ");
     char *msg = malloc(BUFSIZE);
 
+    int k = 0;
+
     if (!strncmp(command, "APOP", 4))
     {
         char *username = strtok(NULL, " ");
@@ -34,10 +36,11 @@ char* serve_client(char *buf, pop3_data *data, int len)
     if (!strncmp(command, "NOOP", 4))
     {
         sprintf(msg, "+OK\n");
-    } else
+    } 
+    else
     if (!strncmp(command, "STAT", 4))
     {
-        sprintf(msg, "+OK a b\n");
+        sprintf(msg, "+OK %d %d\n", data[k].count, data[k].size);
     } else
     if (!strncmp(command, "QUIT", 4))
     {

@@ -175,36 +175,32 @@ void prefork()
                 perror("cache");
                 exit(1);
             }
-            FILE *readpipe, *writepipe;
-            readpipe = fopen(READPIPE, "r");
-            writepipe = fopen(WRITEPIPE, "w");
-            int f = 1;
-            printf("Ready\n");
+            int readpipe, writepipe;
+
+            readpipe = open(READPIPE, O_RDONLY);
+            writepipe = open(WRITEPIPE, O_WRONLY);
+            //int f = 1;
+            char zero = '\0';
+            char buf[BUFSIZE];
+            char *msg;
+            int size;
+            int sock;
             while (1)
             {
-                char buf[BUFSIZE];
-                if (fgets(buf, sizeof(buf), readpipe) != NULL)
-                {
-                    if (f==1)
-                    {
-                        int sock = atoi(buf);
-                        fgets(buf, sizeof(buf), readpipe);
-                        char *msg = serve_client(buf, data, len);
-                        fprintf(writepipe, "%d\n", sock);
-                        fprintf(writepipe, "%s", msg);
-                        fflush(writepipe);
-                        free(msg);
-                        f = 0;
-                    }
-                    else
-                    {
-                        f = 1;
-                    }
-                }
+                read(readpipe, &sock, sizeof(sock));
+                read(readpipe, &size, sizeof(size));
+                read(readpipe, buf, size);
+                printf("Child rcv: %d %d %s\n", sock, size, buf);
+                msg = serve_client(buf, data, len);
+                printf("Msg: %s\n", msg);
+                write(writepipe, &sock, sizeof(sock));
+                size = strlen(msg)+1;
+                write(writepipe, &size, sizeof(size));
+                write(writepipe, msg, size-1);
+                write(writepipe, &zero, sizeof(zero));
             }
-            printf("Quit\n");
-            fclose(readpipe);
-            fclose(writepipe);
+            close(readpipe);
+            close(writepipe);
             exit(0);
         }
     }
@@ -230,10 +226,10 @@ int main(int argc, char* argv[])
     filename = argv[1];
     prefork();
 
-    FILE *readpipe, *writepipe;
+    int readpipe, writepipe;
 
-    readpipe = fopen(READPIPE, "w");
-    writepipe = fopen(WRITEPIPE, "r");
+    readpipe = open(READPIPE, O_WRONLY);
+    writepipe = open(WRITEPIPE, O_RDONLY | O_NONBLOCK);
 
     int listener, epollfd;
 
@@ -294,16 +290,18 @@ int main(int argc, char* argv[])
             }
             else
             {
+                int sock = events[i].data.fd;
                 int finish = 0;
                 char buf[BUFSIZE];
                 int n;
-                n = recv(events[i].data.fd, buf, 1024, 0);
+                memset(buf, 0, sizeof(buf));
+                n = recv(sock, buf, 1024, 0);
                 if (n == -1)
                 {
                     if (errno != EAGAIN)
                     {
                         perror ("read");
-                        close(events[i].data.fd);
+                        close(sock);
                         finish = 1;
                     }
                 }
@@ -311,28 +309,31 @@ int main(int argc, char* argv[])
                 {
                     if (n == 0)
                     {
-                       close(events[i].data.fd);
+                       close(sock);
                        finish = 1;
                     }
                 }
                 if (!finish)
                 {
-                    //fprintf(readpipe, "%d\n%d\n%s\n", 1, events[i].data.fd, buf);
-                    fprintf(readpipe, "%d\n", events[i].data.fd);
-                    fprintf(readpipe, "%s\n", buf);
-                    fflush(readpipe);
+                    write(readpipe, &sock, sizeof(sock));
+                    int size = strlen(buf)+1;
+                    write(readpipe, &size, sizeof(size));
+                    write(readpipe, buf, size-1);
+                    char zero = '\0';
+                    printf("Main send: %d %d %s\n", sock, size, buf);
+                    write(readpipe, &zero, sizeof(zero));
+                    sleep(1);
                     memset(buf, 0, sizeof(buf));
-                    if (fgets(buf, sizeof(buf), writepipe) != NULL)
-                    {
-                        int sock = atoi(buf);
-                        fgets(buf, sizeof(buf), writepipe);
-                        send(sock, buf, sizeof(buf), 0);
-                    }
+                    read(writepipe, &sock, sizeof(sock));
+                    read(writepipe, &size, sizeof(size));
+                    read(writepipe, buf, size);
+                    printf("Main recv: %d %d %s\n", sock, size, buf);
+                    send(sock, buf, strlen(buf), 0);
                 }
             }
         }
     }
-    fclose(readpipe);
-    fclose(writepipe);
+    close(readpipe);
+    close(writepipe);
     return 0;
 }
