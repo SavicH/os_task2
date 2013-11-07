@@ -189,31 +189,29 @@ void prefork()
             read(readpipe, buf, 0);
             while (1)
             {
-                printf("%s\n", "Child tries block readpipe");
                 readsb.sem_op = -1;
                 semop(semid, &readsb, 1);
-                printf("%s\n", "Child blocks readpipe");
+
                 read(readpipe, &sock, sizeof(sock));
                 read(readpipe, &size, sizeof(size));
                 read(readpipe, buf, size);
+
                 readsb.sem_op = 1;
                 semop(semid, &readsb, 1);
-                printf("%s\n", "Child releases readpipe");
 
                 msg = serve_client(buf, data, len);
                 size = strlen(msg)+1;
 
-                printf("%s\n", "Child tries block writepipe");
                 writesb.sem_op = -1;
                 semop(semid, &writesb, 1);
-                printf("%s\n", "Child blocks writepipe");
+
                 write(writepipe, &sock, sizeof(sock));
                 write(writepipe, &size, sizeof(size));
                 write(writepipe, msg, size-1);
                 write(writepipe, &zero, sizeof(zero));
+                
                 writesb.sem_op = 1;
                 semop(semid, &writesb, 1);
-                printf("%s\n", "Child releases writepipe");
             }
             close(readpipe);
             close(writepipe);
@@ -242,13 +240,12 @@ int main(int argc, char* argv[])
     key_t key;
     int semid;
     key = ftok(READPIPE, 'A');
-    semid = semget(key, 1, 0666 | IPC_CREAT);
+    semid = semget(key, 2, 0666 | IPC_CREAT);
 
     union semun su;
     su.val = 1;
     semctl(semid, 0, SETVAL, su);
-
-    //struct sembuf sb = {0, 0, 0};
+    semctl(semid, 1, SETVAL, su);
 
     int listener, epollfd;
     struct epoll_event event;
@@ -318,7 +315,7 @@ int main(int argc, char* argv[])
             {
                 char buf[BUFSIZE];
                 int n;
-                //struct sembuf sb = {0, -1, 0};
+
                 if (events[i].data.fd == writepipe)
                 {
                     int sock, size;
