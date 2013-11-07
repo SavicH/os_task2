@@ -7,7 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/epoll.h>
+#include <sys/ipc.h>
 #include <sys/resource.h>
+#include <sys/sem.h>
 #include <sys/shm.h> 
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -23,6 +25,14 @@
 
 #define READPIPE "/tmp/readpipe"
 #define WRITEPIPE "/tmp/writepipe"
+
+union semun {
+    int val;
+    struct semid_ds *buf;
+    unsigned short  *array;
+    struct seminfo  *__buf;
+};
+
 
 void daemonize(const char *cmd)
 {
@@ -158,27 +168,52 @@ void prefork()
                 perror("cache");
                 exit(1);
             }
-            int readpipe, writepipe;
 
+            int readpipe, writepipe;
             readpipe = open(READPIPE, O_RDONLY);
             writepipe = open(WRITEPIPE, O_WRONLY);
+
+            key_t key;
+            int semid;
+            key = ftok(READPIPE, 'A');
+            semid = semget(key, 1, 0); 
+
+            struct sembuf readsb = {0, 0, 0};
+            struct sembuf writesb = {1, 0, 0};
 
             char zero = '\0';
             char buf[BUFSIZE];
             char *msg;
             int size;
             int sock;
+            read(readpipe, buf, 0);
             while (1)
             {
+                printf("%s\n", "Child tries block readpipe");
+                readsb.sem_op = -1;
+                semop(semid, &readsb, 1);
+                printf("%s\n", "Child blocks readpipe");
                 read(readpipe, &sock, sizeof(sock));
                 read(readpipe, &size, sizeof(size));
                 read(readpipe, buf, size);
+                readsb.sem_op = 1;
+                semop(semid, &readsb, 1);
+                printf("%s\n", "Child releases readpipe");
+
                 msg = serve_client(buf, data, len);
-                write(writepipe, &sock, sizeof(sock));
                 size = strlen(msg)+1;
+
+                printf("%s\n", "Child tries block writepipe");
+                writesb.sem_op = -1;
+                semop(semid, &writesb, 1);
+                printf("%s\n", "Child blocks writepipe");
+                write(writepipe, &sock, sizeof(sock));
                 write(writepipe, &size, sizeof(size));
                 write(writepipe, msg, size-1);
                 write(writepipe, &zero, sizeof(zero));
+                writesb.sem_op = 1;
+                semop(semid, &writesb, 1);
+                printf("%s\n", "Child releases writepipe");
             }
             close(readpipe);
             close(writepipe);
@@ -190,14 +225,6 @@ void prefork()
 int main(int argc, char* argv[])
 {
     //daemonize("POP3 server");
-
-    pop3_data *data;
-    int len;
-    if (cache(argv[1], &data, &len))
-    {
-        perror("cache");
-        exit(1);
-    }
 
     remove(READPIPE);
     mkfifo(READPIPE, 0666);
@@ -212,8 +239,18 @@ int main(int argc, char* argv[])
     readpipe = open(READPIPE, O_WRONLY);
     writepipe = open(WRITEPIPE, O_RDONLY | O_NONBLOCK);
 
-    int listener, epollfd;
+    key_t key;
+    int semid;
+    key = ftok(READPIPE, 'A');
+    semid = semget(key, 1, 0666 | IPC_CREAT);
 
+    union semun su;
+    su.val = 1;
+    semctl(semid, 0, SETVAL, su);
+
+    //struct sembuf sb = {0, 0, 0};
+
+    int listener, epollfd;
     struct epoll_event event;
     struct epoll_event *events;
 
@@ -281,13 +318,14 @@ int main(int argc, char* argv[])
             {
                 char buf[BUFSIZE];
                 int n;
+                //struct sembuf sb = {0, -1, 0};
                 if (events[i].data.fd == writepipe)
                 {
                     int sock, size;
                     while (1)
                     {
                         n = read(writepipe, &sock, sizeof(sock));
-                         if (n == -1)
+                        if (n == -1)
                         {
                             if (errno != EAGAIN)
                             {
@@ -339,6 +377,7 @@ int main(int argc, char* argv[])
             }
         }
     }
+    semctl(semid, 0, IPC_RMID, su);
     close(readpipe);
     close(writepipe);
     return 0;
